@@ -182,6 +182,10 @@ textarea {
 .rendered-material-list li[role="button"] { cursor: pointer; }
 .rendered-material-list li[role="button"]:focus { outline: none; box-shadow: 0 0 0 4px rgba(79,70,229,0.08); border-radius: 6px; }
 
+/* Small progress bar used to show material completion */
+.progress { display: inline-block; width: 96px; height: 8px; background: #E5E7EB; border-radius: 9999px; overflow: hidden; vertical-align: middle; }
+.progress > span { display: block; height: 100%; background: #4F46E5; width: 0%; transition: width 350ms ease; }
+
 .schedule-table {
     width: 100%;
     border-collapse: collapse;

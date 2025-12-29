@@ -247,6 +247,16 @@ function exportMaterialHTML(material) {
     return `<ul style="margin:0;padding-left:1rem">${items.map(it => `<li>${it.done ? '<s>' + escapeHtml(it.text) + '</s>' : escapeHtml(it.text)}</li>`).join('')}</ul>`;
 }
 
+// Compute material completion stats: completed count, total and percent (rounded)
+function materialCompletion(material) {
+    const items = Array.isArray(material) ? material : (typeof material === 'string' ? [{ text: material, done: false }] : []);
+    const total = items.length;
+    if (total === 0) return { completed: 0, total: 0, percent: 0 };
+    const completed = items.reduce((sum, it) => sum + (it && it.done ? 1 : 0), 0);
+    const percent = Math.round((completed / total) * 100);
+    return { completed, total, percent };
+}
+
 function toggleSchedule() {
     showingSchedule = !showingSchedule;
     const scheduleContainer = document.getElementById('scheduleContainer');
@@ -277,7 +287,10 @@ function renderScheduleTable() {
             <td>${formatTime(exam.time)}</td>
             <td>${formatTime(getEndTime(exam.time))}</td>
             <td>2 hours</td>
-            <td style="font-size: 0.875rem;">${renderMaterialListHTML(exam.material)}</td>
+            <td style="font-size: 0.875rem;">
+                ${renderMaterialListHTML(exam.material)}
+                <div style="font-size:0.75rem;color:#6B7280;margin-top:6px">${materialCompletion(exam.material).completed}/${materialCompletion(exam.material).total} (${materialCompletion(exam.material).percent}%)</div>
+            </td>
             <td style="font-size: 0.875rem;">${escapeHtml(exam.questionTypes)}</td>
         </tr>
     `).join('');
@@ -325,10 +338,14 @@ function renderExams() {
                                 🕐 ${formatTime(exam.time)} - ${formatTime(endTime)}
                                 <span class="badge badge-small">2 hours</span>
                             </div>
+                            <div class="exam-meta-item">
+                                <span class="badge badge-small">${materialCompletion(exam.material).percent}%</span>
+                                <div class="progress" style="margin-left:0.5rem"><span style="width:${materialCompletion(exam.material).percent}%;"></span></div>
+                            </div>
                             <div class="badge ${daysUntil.class}">
                                 ${daysUntil.text}
                             </div>
-                        </div>
+                        </div> 
                     </div>
                     <div class="exam-actions">
                         <button class="icon-btn edit" onclick="editExam(${exam.id})" title="Edit">
@@ -382,7 +399,9 @@ function exportToPDF() {
             <td>${escapeHtml(formatTime(exam.time))}</td>
             <td>${escapeHtml(formatTime(getEndTime(exam.time)))}</td>
             <td>2 hours</td>
-            <td style="font-size: 0.875rem;">${exportMaterialHTML(exam.material)}</td>
+            <td style="font-size: 0.875rem;">${exportMaterialHTML(exam.material)}
+              <div style="font-size:0.85rem;color:#6B7280;margin-top:6px">${materialCompletion(exam.material).completed}/${materialCompletion(exam.material).total} (${materialCompletion(exam.material).percent}%)</div>
+            </td>
             <td style="font-size: 0.875rem;">${escapeHtml(exam.questionTypes)}</td>
         </tr>
     `).join('');
