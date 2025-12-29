@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam Organizer</title>
+    <link rel="stylesheet" href="style.css">
+    </head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <h1>
+                    📚 Exam Organizer
+                </h1>
+                <div class="btn-group" id="headerButtons">
+                    <button class="btn btn-success hidden" id="toggleScheduleBtn" onclick="toggleSchedule()">
+                        📊 Show Schedule
+                    </button>
+                    <button class="btn btn-primary" id="addExamBtn" onclick="showForm()">
+                        ➕ Add Exam
+                    </button>
+                    <button class="btn btn-secondary" id="exportBtn" onclick="exportToPDF()" title="Print / Save PDF">🖨️ Print / Save PDF</button>
+                </div>
+            </div>
+
+            <div class="form-container hidden" id="formContainer">
+                <div class="form-header">
+                    <h2 id="formTitle">New Exam</h2>
+                    <button class="close-btn" onclick="hideForm()">✕</button>
+                </div>
+                
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Subject</label>
+                        <input type="text" id="subject" placeholder="e.g., Mathematics">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Exam Date</label>
+                        <input type="date" id="date">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Start Time</label>
+                        <input type="time" id="time">
+                        <span class="time-note">Duration: 2 hours</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Type of Questions</label>
+                        <input type="text" id="questionTypes" placeholder="e.g., Multiple choice, Essay">
+                    </div>
+
+                    <div class="form-group full-width">
+                        <label>Material Covered</label>
+                        <div class="material-input-row">
+                            <input type="text" id="materialInput" placeholder="Add material item and press Add or Enter" onkeydown="if(event.key==='Enter'){ addMaterialItem(); event.preventDefault(); }">
+                            <button class="btn btn-primary" type="button" id="addMaterialBtn" onclick="addMaterialItem()">Add</button>
+                        </div>
+                        <ul id="materialItemsList" class="material-list" aria-live="polite"></ul>
+                        <div class="form-hint">Click items to mark as done; use the trash icon to remove.</div>
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="saveExam()">
+                        <span id="saveButtonText">Add Exam</span>
+                    </button>
+                    <button class="btn btn-secondary" onclick="hideForm()">Cancel</button>
+                </div>
+            </div>
+
+            <div id="scheduleContainer" class="hidden">
+                <h2 style="margin-bottom: 1rem; color: #1f2937;">📊 Exam Schedule</h2>
+                <div style="overflow-x: auto;">
+                    <table class="schedule-table">
+                        <thead>
+                            <tr>
+                                <th>Subject</th>
+                                <th>Date</th>
+                                <th>Start Time</th>
+                                <th>End Time</th>
+                                <th>Duration</th>
+                                <th>Material</th>
+                                <th>Question Type</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scheduleTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="examsList"></div>
+
+            <div class="empty-state hidden" id="emptyState">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                </svg>
+                <p style="font-size: 1.25rem;">No exams scheduled yet. Add your first exam to get started!</p>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
