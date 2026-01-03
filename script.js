@@ -543,6 +543,7 @@ function updateCountdowns() {
             const modalInfo = document.getElementById('modalExamInfo');
             const startBtn = document.getElementById('modalStartBtn');
             const pauseBtn = document.getElementById('modalPauseBtn');
+            const skipBtn = document.getElementById('modalSkipPhaseBtn');
             if (modalInfo) modalInfo.textContent = `${escapeHtml(exam.subject)} • ${formatDate(exam.date)} ${formatTime(exam.time)}`;
 
             // if exam in pomodoro mode show phase timer
@@ -561,11 +562,13 @@ function updateCountdowns() {
                 // enable/disable buttons based on running
                 if (startBtn) startBtn.disabled = !!p.phaseEnd;
                 if (pauseBtn) pauseBtn.disabled = !p.phaseEnd;
+                if (skipBtn) skipBtn.disabled = !(p.phase === 'short' || p.phase === 'long');
             } else {
                 // standard timer UI
                 if (modalDisp) modalDisp.textContent = formatDuration(elapsed);
                 if (startBtn) startBtn.disabled = !!exam.timerRunningStart;
                 if (pauseBtn) pauseBtn.disabled = !exam.timerRunningStart;
+                if (skipBtn) skipBtn.disabled = true;
             }
 
             renderModalSessionsList(exam);
@@ -818,6 +821,33 @@ function resetPomodoro(id) {
     if (!confirm('Reset Pomodoro state and counts for this exam?')) return;
     exam.pomodoro = { mode: 'timer', phase: 'idle', phaseEnd: null, remaining: 0, focusCount: 0 };
     saveToStorage();
+}
+
+function skipPhase(id) {
+    const exam = exams.find(e => e.id === id);
+    if (!exam) return;
+    ensurePomodoroState(exam);
+    const p = exam.pomodoro;
+    if (!p || p.mode !== 'pomodoro') return;
+    // If currently in focus, finish it immediately (logs session and advances to break)
+    if (p.phase === 'focus') {
+        advancePomodoroPhase(exam);
+    } else if (p.phase === 'short' || p.phase === 'long') {
+        // If in a break, confirm when it's a long break, then jump to focus immediately
+        if (p.phase === 'long') {
+            if (!confirm('Skip the long break and start the next focus session now?')) return;
+        }
+        p.phase = 'focus';
+        p.phaseEnd = Date.now() + POMODORO_FOCUS*1000;
+        p.remaining = 0;
+        saveToStorage();
+        playBeep('start');
+    }
+    renderExams();
+    if (currentModalExamId === id) {
+        renderModalPomodoroState(exam);
+        updateCountdowns();
+    }
 }
 
 function advancePomodoroPhase(exam) {
