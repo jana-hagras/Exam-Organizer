@@ -3,6 +3,11 @@ let editingId = null;
 let showingSchedule = false;
 let formMaterialItems = []; // temporary material items while editing/creating an exam
 
+// Study state
+let globalTimerInterval = null;
+let audioCtx = null; // for WebAudio beeps
+let soundMuted = (localStorage.getItem('soundMuted') ?? 'true') === 'true'; // default: muted
+
 // Load exams from localStorage on page load
 function loadExams() {
     const saved = localStorage.getItem('exams');
@@ -24,6 +29,12 @@ function loadExams() {
                             return { text: String(it), done: false };
                         });
                     }
+
+                    // Ensure study tracking fields exist
+                    e.studySessions = Array.isArray(e.studySessions) ? e.studySessions : [];
+                    e.totalStudySeconds = typeof e.totalStudySeconds === 'number' ? e.totalStudySeconds : (e.totalStudySeconds ? Number(e.totalStudySeconds) : 0);
+                    e.timerRunningStart = e.timerRunningStart ? Number(e.timerRunningStart) : null;
+
                     return e;
                 });
             } else {
@@ -42,6 +53,10 @@ function loadExams() {
         }
     }
     renderExams();
+
+    // Start countdown/timer updates
+    startGlobalTimerUpdates();
+    updateDashboard();
 }
 
 function saveToStorage() {
@@ -94,20 +109,31 @@ function saveExam() {
         date,
         time,
         material: formMaterialItems.slice(),
-        questionTypes
+        questionTypes,
+        // study tracking defaults
+        studySessions: [],
+        totalStudySeconds: 0,
+        timerRunningStart: null
     };
 
     if (editingId) {
         const index = exams.findIndex(e => e.id === editingId);
-        exams[index] = exam;
+        // Preserve existing study data when editing
+        if (index !== -1) {
+            exam.studySessions = exams[index].studySessions || [];
+            exam.totalStudySeconds = exams[index].totalStudySeconds || 0;
+            exam.timerRunningStart = exams[index].timerRunningStart || null;
+            exams[index] = exam;
+        }
     } else {
         exams.push(exam);
     }
 
     saveToStorage();
+
     renderExams();
     hideForm();
-} 
+}
 
 function editExam(id) {
     const exam = exams.find(e => e.id === id);
@@ -150,7 +176,7 @@ function editExam(id) {
     }
     // focus after a short delay so the scroll animation isn't interrupted
     if (subj) setTimeout(() => subj.focus(), 220);
-} 
+}
 
 function deleteExam(id) {
     if (confirm('Are you sure you want to delete this exam?')) {
@@ -180,7 +206,7 @@ function getEndTime(startTime) {
     date.setHours(parseInt(hours));
     date.setMinutes(parseInt(minutes));
     date.setHours(date.getHours() + 2);
-    
+
     const endHours = String(date.getHours()).padStart(2, '0');
     const endMinutes = String(date.getMinutes()).padStart(2, '0');
     return `${endHours}:${endMinutes}`;
@@ -190,7 +216,7 @@ function getDaysUntil(dateString, timeString) {
     const examDate = new Date(dateString + ' ' + timeString);
     const today = new Date();
     const diff = Math.ceil((examDate - today) / (1000 * 60 * 60 * 24));
-    
+
     if (diff < 0) return { text: 'Past', class: 'badge-secondary' };
     if (diff === 0) return { text: 'Today!', class: 'badge-danger' };
     if (diff === 1) return { text: 'Tomorrow', class: 'badge-primary' };
@@ -261,7 +287,7 @@ function toggleSchedule() {
     showingSchedule = !showingSchedule;
     const scheduleContainer = document.getElementById('scheduleContainer');
     const toggleBtn = document.getElementById('toggleScheduleBtn');
-    
+
     if (showingSchedule) {
         scheduleContainer.classList.remove('hidden');
         toggleBtn.textContent = '📊 Hide Schedule';
@@ -307,6 +333,7 @@ function renderExams() {
         toggleScheduleBtn.classList.add('hidden');
         document.getElementById('scheduleContainer').classList.add('hidden');
         showingSchedule = false;
+        updateDashboard();
         return;
     }
 
@@ -324,9 +351,12 @@ function renderExams() {
         const endTime = getEndTime(exam.time);
         const isPast = daysUntil.text === 'Past';
         const isToday = daysUntil.text === 'Today!';
-        
+        const completion = materialCompletion(exam.material).percent;
+        const timeRem = getTimeRemaining(exam.date, exam.time);
+        const elapsed = (exam.totalStudySeconds || 0) + (exam.timerRunningStart ? Math.floor((Date.now() - exam.timerRunningStart) / 1000) : 0);
+
         return `
-            <div class="exam-card ${isPast ? 'past' : ''} ${isToday ? 'today' : ''}">
+            <div class="exam-card ${isPast ? 'past' : ''} ${isToday ? 'today' : ''}" id="exam-${exam.id}">
                 <div class="exam-header">
                     <div style="flex: 1;">
                         <div class="exam-title">${escapeHtml(exam.subject)}</div>
@@ -339,13 +369,16 @@ function renderExams() {
                                 <span class="badge badge-small">2 hours</span>
                             </div>
                             <div class="exam-meta-item">
-                                <span class="badge badge-small">${materialCompletion(exam.material).percent}%</span>
-                                <div class="progress" style="margin-left:0.5rem"><span style="width:${materialCompletion(exam.material).percent}%;"></span></div>
+                                <span class="badge badge-small">${completion}%</span>
+                                <div class="progress" style="margin-left:0.5rem"><span style="width:${completion}%;"></span></div>
+                            </div>
+                            <div class="exam-meta-item">
+                                ⏳ <span id="timeRem-${exam.id}">${escapeHtml(timeRem.text)}</span>
                             </div>
                             <div class="badge ${daysUntil.class}">
                                 ${daysUntil.text}
                             </div>
-                        </div> 
+                        </div>
                     </div>
                     <div class="exam-actions">
                         <button class="icon-btn edit" onclick="editExam(${exam.id})" title="Edit">
@@ -368,17 +401,388 @@ function renderExams() {
                             📚 Material Covered:
                         </div>
                         <div class="exam-detail-content">${renderMaterialListHTML(exam.material)}</div>
-                    </div> 
+                    </div>
+                    <div class="exam-detail">
+                        <div class="exam-detail-title">⏱️ Study Timer</div>
+                        <div class="exam-detail-content" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+                            <div id="studyElapsed-${exam.id}" style="font-weight:600">${formatDuration(elapsed)}</div>
+                            <div style="display:flex;gap:0.5rem">
+                                <button class="btn btn-primary" onclick="openStudyModal(${exam.id})">Open Timer</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
     }).join('');
+
+    // Ensure UI and dashboard are updated
+    updateCountdowns();
+    updateDashboard();
+    // ensure modal UI reflects any saved sound/mode state
+    const muteBtn = document.getElementById('modalMuteBtn'); if (muteBtn) muteBtn.textContent = soundMuted ? '🔕' : '🔔';
 
     if (showingSchedule) {
         renderScheduleTable();
     }
 }
 
+// -----------------------------
+// Study timers, dashboard & notification helpers
+// -----------------------------
+
+function formatDuration(totalSeconds) {
+    totalSeconds = Number(totalSeconds) || 0;
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours}h ${String(minutes).padStart(2,'0')}m ${String(seconds).padStart(2,'0')}s`;
+    return `${String(minutes).padStart(2,'0')}m ${String(seconds).padStart(2,'0')}s`;
+}
+
+function getTimeRemaining(dateString, timeString) {
+    const examDate = new Date(dateString + ' ' + timeString);
+    const diffMs = examDate - Date.now();
+    if (diffMs <= 0) return { seconds: 0, text: 'Started' };
+    const sec = Math.floor(diffMs / 1000);
+    if (sec >= 86400 * 3) {
+        const days = Math.floor(sec / 86400);
+        return { seconds: sec, text: `${days} days` };
+    }
+    if (sec >= 3600) {
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        return { seconds: sec, text: `${h}h ${m}m` };
+    }
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return { seconds: sec, text: `${m}m ${s}s` };
+}
+
+function startStudyTimer(id) {
+    const exam = exams.find(e => e.id === id);
+    if (!exam) return;
+    ensurePomodoroState(exam);
+    if (exam.pomodoro && exam.pomodoro.mode === 'pomodoro') {
+        startPomodoro(id);
+        return;
+    }
+    if (exam.timerRunningStart) return; // already running
+    exam.timerRunningStart = Date.now();
+    saveToStorage();
+    updateCountdowns();
+}
+
+function pauseStudyTimer(id) {
+    const exam = exams.find(e => e.id === id);
+    if (!exam) return;
+    ensurePomodoroState(exam);
+    if (exam.pomodoro && exam.pomodoro.mode === 'pomodoro') {
+        pausePomodoro(id);
+        renderExams();
+        return;
+    }
+    if (!exam.timerRunningStart) return;
+    const now = Date.now();
+    const elapsedSec = Math.floor((now - exam.timerRunningStart) / 1000);
+    if (elapsedSec > 0) {
+        exam.totalStudySeconds = (exam.totalStudySeconds || 0) + elapsedSec;
+        exam.studySessions = exam.studySessions || [];
+        exam.studySessions.push({ start: exam.timerRunningStart, end: now, seconds: elapsedSec });
+    }
+    exam.timerRunningStart = null;
+    saveToStorage();
+    renderExams();
+}
+
+function resetStudyTimer(id) {
+    const exam = exams.find(e => e.id === id);
+    if (!exam) return;
+    ensurePomodoroState(exam);
+    if (exam.pomodoro && exam.pomodoro.mode === 'pomodoro') {
+        resetPomodoro(id);
+        renderExams();
+        return;
+    }
+    if (!confirm('Reset study time and sessions for this exam?')) return;
+    exam.studySessions = [];
+    exam.totalStudySeconds = 0;
+    exam.timerRunningStart = null;
+    saveToStorage();
+    renderExams();
+}
+
+let currentModalExamId = null;
+
+function updateCountdowns() {
+    exams.forEach(exam => {
+        const timeRemEl = document.getElementById(`timeRem-${exam.id}`);
+        const studyEl = document.getElementById(`studyElapsed-${exam.id}`);
+
+        const timeRem = getTimeRemaining(exam.date, exam.time);
+        if (timeRemEl) timeRemEl.textContent = timeRem.text;
+
+        // normal elapsed
+        const elapsed = (exam.totalStudySeconds || 0) + (exam.timerRunningStart ? Math.floor((Date.now() - exam.timerRunningStart) / 1000) : 0);
+        if (studyEl) studyEl.textContent = formatDuration(elapsed);
+
+        // handle pomodoro automatic transitions
+        if (exam.pomodoro && exam.pomodoro.phaseEnd) {
+            const p = exam.pomodoro;
+            const remaining = Math.max(0, Math.ceil((p.phaseEnd - Date.now())/1000));
+            if (remaining <= 0) {
+                // advance phase
+                advancePomodoroPhase(exam);
+            }
+        }
+
+        // if modal open for this exam, update modal display
+        if (currentModalExamId === exam.id) {
+            const modalDisp = document.getElementById('modalTimerDisplay');
+            const modalInfo = document.getElementById('modalExamInfo');
+            const startBtn = document.getElementById('modalStartBtn');
+            const pauseBtn = document.getElementById('modalPauseBtn');
+            if (modalInfo) modalInfo.textContent = `${escapeHtml(exam.subject)} • ${formatDate(exam.date)} ${formatTime(exam.time)}`;
+
+            // if exam in pomodoro mode show phase timer
+            if (exam.pomodoro && exam.pomodoro.mode === 'pomodoro') {
+                ensurePomodoroState(exam);
+                const p = exam.pomodoro;
+                const phase = p.phase || 'idle';
+                const phaseRemaining = p.phaseEnd ? Math.max(0, Math.ceil((p.phaseEnd - Date.now())/1000)) : p.remaining || 0;
+                if (modalDisp) {
+                    modalDisp.textContent = `${formatDuration(phaseRemaining)} ` + (phase === 'focus' ? '• Focus' : (phase === 'short' ? '• Short Break' : (phase === 'long' ? '• Long Break' : '')));
+                }
+                const modalPhase = document.getElementById('modalPhaseDisplay');
+                if (modalPhase) modalPhase.textContent = `Phase: ${phase}`;
+                const cycleEl = document.getElementById('modalCycleCount');
+                if (cycleEl) cycleEl.textContent = `Cycles: ${p.focusCount || 0}`;
+                // enable/disable buttons based on running
+                if (startBtn) startBtn.disabled = !!p.phaseEnd;
+                if (pauseBtn) pauseBtn.disabled = !p.phaseEnd;
+            } else {
+                // standard timer UI
+                if (modalDisp) modalDisp.textContent = formatDuration(elapsed);
+                if (startBtn) startBtn.disabled = !!exam.timerRunningStart;
+                if (pauseBtn) pauseBtn.disabled = !exam.timerRunningStart;
+            }
+
+            renderModalSessionsList(exam);
+            renderModalPomodoroState(exam);
+        }
+    });
+    updateDashboard();
+}
+
+function openStudyModal(id) {
+    const exam = exams.find(e => e.id === id);
+    if (!exam) return;
+    currentModalExamId = id;
+    const overlay = document.getElementById('studyModalOverlay');
+    overlay.classList.remove('hidden');
+    document.getElementById('modalTitle').textContent = `${escapeHtml(exam.subject)} — Study Timer`;
+    document.getElementById('modalExamInfo').textContent = `${formatDate(exam.date)} ${formatTime(exam.time)}`;
+    // set mode select and mute button
+    ensurePomodoroState(exam);
+    const modeSel = document.getElementById('modalModeSelect');
+    if (modeSel) modeSel.value = exam.pomodoro.mode || 'timer';
+    const muteBtn = document.getElementById('modalMuteBtn');
+    if (muteBtn) muteBtn.textContent = soundMuted ? '🔕' : '🔔';
+    // immediate UI update
+    updateCountdowns();
+    // focus modal for accessibility
+    setTimeout(() => document.getElementById('modalStartBtn') && document.getElementById('modalStartBtn').focus(), 80);
+}
+
+function closeStudyModal() {
+    currentModalExamId = null;
+    const overlay = document.getElementById('studyModalOverlay');
+    if (overlay) overlay.classList.add('hidden');
+    // restore modal controls to default
+    const modeSel = document.getElementById('modalModeSelect'); if (modeSel) modeSel.value = 'timer';
+}
+
+function renderModalSessionsList(exam) {
+    const list = document.getElementById('modalSessionsList');
+    if (!list || !exam) return;
+    const sessions = (exam.studySessions || []).slice().reverse();
+    if (sessions.length === 0) {
+        list.innerHTML = '<li style="color:#6B7280">No sessions yet</li>';
+        return;
+    }
+    list.innerHTML = sessions.map(s => {
+        const start = new Date(s.start); const end = new Date(s.end || Date.now());
+        return `<li>${start.toLocaleString()} — ${end.toLocaleTimeString()} • ${formatDuration(s.seconds)}</li>`;
+    }).join('');
+}
+
+function renderModalPomodoroState(exam) {
+    if (!exam) return;
+    ensurePomodoroState(exam);
+    const p = exam.pomodoro;
+    const modeSel = document.getElementById('modalModeSelect'); if (modeSel) modeSel.value = p.mode || 'timer';
+    const phaseEl = document.getElementById('modalPhaseDisplay'); if (phaseEl) phaseEl.textContent = `Phase: ${p.phase || 'idle'}`;
+    const cycleEl = document.getElementById('modalCycleCount'); if (cycleEl) cycleEl.textContent = `Cycles: ${p.focusCount || 0}`;
+    const muteBtn = document.getElementById('modalMuteBtn'); if (muteBtn) muteBtn.textContent = soundMuted ? '🔕' : '🔔';
+}
+
+function setModalMode(id, mode) {
+    const exam = exams.find(e => e.id === id);
+    if (!exam) return;
+    ensurePomodoroState(exam);
+    exam.pomodoro.mode = mode;
+    if (mode !== 'pomodoro') {
+        // clear pomodoro state when switching back to timer
+        exam.pomodoro.phase = 'idle';
+        exam.pomodoro.phaseEnd = null;
+        exam.pomodoro.remaining = 0;
+    }
+    saveToStorage();
+    renderModalPomodoroState(exam);
+}
+
+// close modal on escape key
+window.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && currentModalExamId !== null) closeStudyModal();
+});
+
+// close modal when clicking outside modal content (overlay click)
+(function() {
+    const overlay = document.getElementById('studyModalOverlay');
+    if (!overlay) return;
+    overlay.addEventListener('click', function (e) {
+        // only close when clicking the overlay itself (not modal content)
+        if (e.target === overlay) closeStudyModal();
+    });
+})();
+
+function startGlobalTimerUpdates() {
+    if (globalTimerInterval) clearInterval(globalTimerInterval);
+    globalTimerInterval = setInterval(updateCountdowns, 1000);
+}
+
+
+
+function updateDashboard() {
+    // Keep this lightweight: update mute button text (modal) if present
+    const muteBtn = document.getElementById('modalMuteBtn');
+    if (muteBtn) muteBtn.textContent = soundMuted ? '🔕' : '🔔';
+}
+
+// -----------------------------
+// Sound controls
+// -----------------------------
+function toggleSound() {
+    soundMuted = !soundMuted;
+    localStorage.setItem('soundMuted', soundMuted ? 'true' : 'false');
+    updateDashboard();
+}
+
+function ensureAudioContext() {
+    if (!audioCtx) {
+        try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audioCtx = null; }
+    }
+}
+
+function playBeep(type = 'click') {
+    if (soundMuted) return;
+    ensureAudioContext();
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    if (type === 'start') o.frequency.value = 880;
+    else if (type === 'pause') o.frequency.value = 440;
+    else if (type === 'break') o.frequency.value = 660;
+    else o.frequency.value = 600;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
+    o.start(now);
+    o.frequency.exponentialRampToValueAtTime(o.frequency.value * 0.5, now + 0.45);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+    o.stop(now + 0.56);
+}
+
+// Pomodoro defaults (seconds)
+const POMODORO_FOCUS = 25*60;
+const POMODORO_SHORT = 5*60;
+const POMODORO_LONG = 20*60;
+const POMODORO_CYCLES = 4;
+
+function ensurePomodoroState(exam) {
+    exam.pomodoro = exam.pomodoro || { mode: 'timer', phase: 'idle', phaseEnd: null, remaining: 0, focusCount: 0 };
+}
+
+function startPomodoro(id) {
+    const exam = exams.find(e => e.id === id);
+    if (!exam) return;
+    ensurePomodoroState(exam);
+    const p = exam.pomodoro;
+    if (!p.phase || p.phase === 'idle') { p.phase = 'focus'; p.remaining = POMODORO_FOCUS; }
+    // resume from pause
+    if (p.phaseEnd === null && p.remaining > 0) {
+        p.phaseEnd = Date.now() + p.remaining*1000;
+    } else if (!p.phaseEnd) {
+        const duration = (p.phase === 'focus' ? POMODORO_FOCUS : (p.phase === 'short' ? POMODORO_SHORT : POMODORO_LONG));
+        p.phaseEnd = Date.now() + duration*1000;
+    }
+    saveToStorage();
+    playBeep('start');
+}
+
+function pausePomodoro(id) {
+    const exam = exams.find(e => e.id === id);
+    if (!exam || !exam.pomodoro) return;
+    const p = exam.pomodoro;
+    if (!p.phaseEnd) return;
+    p.remaining = Math.max(0, Math.ceil((p.phaseEnd - Date.now())/1000));
+    p.phaseEnd = null;
+    saveToStorage();
+    playBeep('pause');
+}
+
+function resetPomodoro(id) {
+    const exam = exams.find(e => e.id === id);
+    if (!exam) return;
+    if (!confirm('Reset Pomodoro state and counts for this exam?')) return;
+    exam.pomodoro = { mode: 'timer', phase: 'idle', phaseEnd: null, remaining: 0, focusCount: 0 };
+    saveToStorage();
+}
+
+function advancePomodoroPhase(exam) {
+    ensurePomodoroState(exam);
+    const p = exam.pomodoro;
+    if (p.phase === 'focus') {
+        // finish a focus session
+        const elapsed = p.remaining && p.remaining < POMODORO_FOCUS ? (POMODORO_FOCUS - p.remaining) : POMODORO_FOCUS;
+        const now = Date.now();
+        const start = now - elapsed*1000;
+        const end = now;
+        exam.totalStudySeconds = (exam.totalStudySeconds || 0) + elapsed;
+        exam.studySessions = exam.studySessions || [];
+        exam.studySessions.push({ start: start, end: end, seconds: elapsed });
+        p.focusCount = (p.focusCount || 0) + 1;
+        if (p.focusCount % POMODORO_CYCLES === 0) { p.phase = 'long'; p.phaseEnd = Date.now() + POMODORO_LONG*1000; }
+        else { p.phase = 'short'; p.phaseEnd = Date.now() + POMODORO_SHORT*1000; }
+        playBeep('break');
+    } else if (p.phase === 'short' || p.phase === 'long') {
+        p.phase = 'focus'; p.phaseEnd = Date.now() + POMODORO_FOCUS*1000; playBeep('start');
+    }
+    p.remaining = 0;
+    saveToStorage();
+}
+
+
+
+
+
+
+
+
+
+
+// -----------------------------
 // Export the visible schedule to a printable window (user can save as PDF)
 function exportToPDF() {
     if (!exams || exams.length === 0) {

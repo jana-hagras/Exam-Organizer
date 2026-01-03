@@ -8,6 +8,8 @@ A small, lightweight client-side app to create and manage exam schedules with ma
 - Material checklist is synced between the edit form and the exam card
 - Sortable schedule view and printable/exportable schedule (print to PDF)
 - Responsive UI and accessible interactions (keyboard supported)
+- Study Timer: start/pause/reset a study timer per exam; sessions persist across reloads
+- Pomodoro mode: optional 25-minute focus / 5-minute short break, long break after 4 sessions (configurable defaults)
 
 ## Quick start 🚀
 ### Run locally
@@ -29,7 +31,6 @@ python -m http.server 8000
 ## Development 🛠️
 - Files to edit: `index.html`, `style.css`, `script.js`.
 - No build step required; open the files directly in a browser.
-- Consider adding a small HTTP server for testing in some browsers.
+- Consider adding a small HTTP server for testing in some browsers (CORS / file access differences).
 
 *Created with ❤️ — feel free to customize this README with screenshots or usage examples.*
-

@@ -21,8 +21,11 @@
                         ➕ Add Exam
                     </button>
                     <button class="btn btn-secondary" id="exportBtn" onclick="exportToPDF()" title="Print / Save PDF">🖨️ Print / Save PDF</button>
+
                 </div>
             </div>
+
+
 
             <div class="form-container hidden" id="formContainer">
                 <div class="form-header">
@@ -102,6 +105,50 @@
             </div>
         </div>
     </div>
+
+    <!-- Study Timer Modal -->
+    <div id="studyModalOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal" id="studyModal">
+            <div class="modal-header">
+                <h3 id="modalTitle">Study Timer</h3>
+                <div class="modal-controls" role="group" aria-label="Modal controls">
+                    <button class="btn btn-secondary" id="modalMuteBtn" onclick="toggleSound()">🔕</button>
+                    <button class="close-btn" onclick="closeStudyModal()" aria-label="Close">✕</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div style="font-size:2rem;font-weight:700;margin-bottom:0.5rem" id="modalTimerDisplay">00:00</div>
+                <div style="margin-bottom:0.5rem;color:#6B7280" id="modalExamInfo">Subject • Date • Time</div>
+
+                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+                    <label style="font-size:0.95rem">Mode:
+                        <select id="modalModeSelect" onchange="setModalMode(currentModalExamId, this.value)">
+                            <option value="timer">Timer</option>
+                            <option value="pomodoro">Pomodoro</option>
+                        </select>
+                    </label>
+                    <div id="modalPhaseDisplay" style="margin-left:auto;font-weight:600;color:#374151">Phase: —</div>
+                </div>
+
+                <div id="modalCycleCount" style="color:#6B7280;margin-bottom:0.5rem">Cycles: 0</div>
+
+                <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem">
+                    <button class="btn btn-primary" id="modalStartBtn" onclick="startStudyTimer(currentModalExamId)">Start</button>
+                    <button class="btn btn-secondary" id="modalPauseBtn" onclick="pauseStudyTimer(currentModalExamId)">Pause</button>
+                    <button class="btn" id="modalResetBtn" onclick="resetStudyTimer(currentModalExamId)">Reset</button>
+                </div>
+
+                <div>
+                    <div style="font-weight:600;margin-bottom:0.25rem">Sessions</div>
+                    <ul id="modalSessionsList" style="max-height:180px;overflow:auto;padding-left:1rem;color:#374151"></ul>
+                </div>
+            </div>
+            <div class="modal-actions" style="text-align:right;margin-top:0.75rem">
+                <button class="btn btn-secondary" onclick="closeStudyModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script src="script.js"></script>
 </body>
 </html>
