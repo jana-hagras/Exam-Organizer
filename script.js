@@ -7,6 +7,7 @@ let formMaterialItems = []; // temporary material items while editing/creating a
 let globalTimerInterval = null;
 let audioCtx = null; // for WebAudio beeps
 let soundMuted = (localStorage.getItem('soundMuted') ?? 'true') === 'true'; // default: muted
+let soundStyle = localStorage.getItem('soundStyle') || 'classic'; // 'classic' | 'soft' | 'none' (global control)
 
 // Load exams from localStorage on page load
 function loadExams() {
@@ -586,6 +587,7 @@ function openStudyModal(id) {
     ensurePomodoroState(exam);
     const modeSel = document.getElementById('modalModeSelect');
     if (modeSel) modeSel.value = exam.pomodoro.mode || 'timer';
+    const soundSel = document.getElementById('modalSoundStyle'); if (soundSel) soundSel.value = soundStyle || 'classic';
     const muteBtn = document.getElementById('modalMuteBtn');
     if (muteBtn) muteBtn.textContent = soundMuted ? '🔕' : '🔔';
     // immediate UI update
@@ -621,6 +623,7 @@ function renderModalPomodoroState(exam) {
     ensurePomodoroState(exam);
     const p = exam.pomodoro;
     const modeSel = document.getElementById('modalModeSelect'); if (modeSel) modeSel.value = p.mode || 'timer';
+    const soundSel = document.getElementById('modalSoundStyle'); if (soundSel) soundSel.value = soundStyle || 'classic';
     const phaseEl = document.getElementById('modalPhaseDisplay'); if (phaseEl) phaseEl.textContent = `Phase: ${p.phase || 'idle'}`;
     const cycleEl = document.getElementById('modalCycleCount'); if (cycleEl) cycleEl.textContent = `Cycles: ${p.focusCount || 0}`;
     const muteBtn = document.getElementById('modalMuteBtn'); if (muteBtn) muteBtn.textContent = soundMuted ? '🔕' : '🔔';
@@ -678,6 +681,14 @@ function toggleSound() {
     updateDashboard();
 }
 
+function setSoundStyle(val) {
+    soundStyle = val || 'classic';
+    localStorage.setItem('soundStyle', soundStyle);
+    updateDashboard();
+    // keep modal UI synced when changed
+    const soundSel = document.getElementById('modalSoundStyle'); if (soundSel) soundSel.value = soundStyle;
+} 
+
 function ensureAudioContext() {
     if (!audioCtx) {
         try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audioCtx = null; }
@@ -686,22 +697,81 @@ function ensureAudioContext() {
 
 function playBeep(type = 'click') {
     if (soundMuted) return;
+    if (soundStyle === 'none') return;
     ensureAudioContext();
     if (!audioCtx) return;
     const now = audioCtx.currentTime;
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.connect(g); g.connect(audioCtx.destination);
-    if (type === 'start') o.frequency.value = 880;
-    else if (type === 'pause') o.frequency.value = 440;
-    else if (type === 'break') o.frequency.value = 660;
-    else o.frequency.value = 600;
-    g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
-    o.start(now);
-    o.frequency.exponentialRampToValueAtTime(o.frequency.value * 0.5, now + 0.45);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
-    o.stop(now + 0.56);
+
+    // Master gain to control overall level
+    const master = audioCtx.createGain();
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(0.9, now + 0.01);
+    master.connect(audioCtx.destination);
+
+    // helper to create a gentle delay/reverb for 'soft' style
+    const makeDelay = () => {
+        const delay = audioCtx.createDelay(0.6);
+        const fb = audioCtx.createGain();
+        const lp = audioCtx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1200;
+        fb.gain.setValueAtTime(0.22, now);
+        delay.connect(fb); fb.connect(delay); delay.connect(lp); lp.connect(master);
+        return delay;
+    };
+
+    const playTone = (freq, dur = 0.18, startOffset = 0, wave='sine', gainLevel = 0.12, detune=0) => {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = wave;
+        o.frequency.setValueAtTime(freq, now + startOffset);
+        if (detune) o.detune.setValueAtTime(detune, now + startOffset);
+        g.gain.setValueAtTime(0.0001, now + startOffset);
+        g.gain.exponentialRampToValueAtTime(gainLevel, now + startOffset + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + startOffset + dur + 0.02);
+        o.connect(g);
+        if (soundStyle === 'soft') {
+            const d = makeDelay();
+            g.connect(d);
+            g.connect(master);
+        } else {
+            g.connect(master);
+        }
+        o.start(now + startOffset);
+        o.stop(now + startOffset + dur + 0.05);
+    };
+
+    const s = soundStyle || 'classic';
+    if (type === 'start') {
+        if (s === 'soft') {
+            playTone(660, 0.22, 0, 'sine', 0.06, -5);
+            playTone(820, 0.18, 0.06, 'sine', 0.07, 3);
+            playTone(1047, 0.14, 0.12, 'sine', 0.06, 5);
+        } else {
+            playTone(880, 0.16, 0, 'sine', 0.09);
+            playTone(1047, 0.12, 0.06, 'sine', 0.08);
+            playTone(1318, 0.09, 0.12, 'sine', 0.06);
+        }
+    } else if (type === 'pause') {
+        if (s === 'soft') {
+            playTone(392, 0.3, 0, 'sine', 0.08, -8);
+            playTone(330, 0.24, 0.08, 'sine', 0.06, -6);
+        } else {
+            playTone(440, 0.24, 0, 'sine', 0.09, -10);
+            playTone(330, 0.18, 0.06, 'sine', 0.07, -8);
+        }
+    } else if (type === 'break') {
+        if (s === 'soft') {
+            playTone(520, 0.34, 0, 'sine', 0.1, -2);
+            playTone(780, 0.34, 0.06, 'sine', 0.09, 4);
+        } else {
+            playTone(660, 0.32, 0, 'sine', 0.12);
+            playTone(990, 0.32, 0.06, 'sine', 0.11, 6);
+        }
+    } else if (type === 'done') {
+        playTone(1244, 0.26, 0, 'sine', 0.11);
+        playTone(1568, 0.18, 0.06, 'sine', 0.09);
+    } else {
+        playTone(600, 0.12, 0, 'sine', 0.1);
+    }
 }
 
 // Pomodoro defaults (seconds)
