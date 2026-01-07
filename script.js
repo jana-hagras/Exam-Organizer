@@ -214,10 +214,18 @@ function getEndTime(startTime) {
 }
 
 function getDaysUntil(dateString, timeString) {
-    const examDate = new Date(dateString + ' ' + timeString);
-    const today = new Date();
-    const diff = Math.ceil((examDate - today) / (1000 * 60 * 60 * 24));
+    const start = new Date(dateString + ' ' + timeString);
+    const end = new Date(start);
+    end.setHours(end.getHours() + 2); // exams are 2 hours by default
 
+    const today = new Date();
+    // compare calendar days (midnight-to-midnight) to avoid time-of-day anomalies
+    const startMidnight = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const diff = Math.round((startMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
+
+    // If the exam is today but already finished, treat it as Past
+    if (diff === 0 && Date.now() > end.getTime()) return { text: 'Past', class: 'badge-secondary' };
     if (diff < 0) return { text: 'Past', class: 'badge-secondary' };
     if (diff === 0) return { text: 'Today!', class: 'badge-danger' };
     if (diff === 1) return { text: 'Tomorrow', class: 'badge-primary' };
@@ -442,8 +450,14 @@ function formatDuration(totalSeconds) {
 }
 
 function getTimeRemaining(dateString, timeString) {
-    const examDate = new Date(dateString + ' ' + timeString);
-    const diffMs = examDate - Date.now();
+    const start = new Date(dateString + ' ' + timeString);
+    const end = new Date(start);
+    end.setHours(end.getHours() + 2); // default exam duration is 2 hours
+
+    const now = Date.now();
+    if (now >= end.getTime()) return { seconds: 0, text: 'Finished' };
+
+    const diffMs = start - now;
     if (diffMs <= 0) return { seconds: 0, text: 'Started' };
     const sec = Math.floor(diffMs / 1000);
     if (sec >= 86400 * 3) {
