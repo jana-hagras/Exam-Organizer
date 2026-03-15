@@ -32,5 +32,3 @@ python -m http.server 8000
 - Files to edit: `index.html`, `style.css`, `script.js`.
 - No build step required; open the files directly in a browser.
 - Consider adding a small HTTP server for testing in some browsers (CORS / file access differences).
-
-*Created with ❤️ — feel free to customize this README with screenshots or usage examples.*
